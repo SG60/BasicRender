@@ -5,14 +5,27 @@
 #include "BasicRender.h"
 
 #include <d3d11.h>
+#include <DirectXMath.h>
+#include <d3dcompiler.h>
 
-#pragma comment (lib, "d3d11.lib")
+//#pragma comment (lib, "d3dcompiler.lib")
+//#pragma comment (lib, "d3d11.lib")
 
 #define MAX_LOADSTRING 100
 
 // screen resolution
 #define SCREEN_WIDTH 2560
 #define SCREEN_HEIGHT 1440
+
+// namespaces
+using namespace DirectX;
+
+// data type to describe a vertex
+struct SimpleVertex
+{
+	XMFLOAT3 Position;
+	XMFLOAT3 Colour;
+};
 
 // Global Variables:
 HINSTANCE hInst;								// current instance
@@ -21,14 +34,21 @@ TCHAR szWindowClass[MAX_LOADSTRING];			// the main window class name
 
 IDXGISwapChain *pSwapchain;    // pointer to the swap chain interface
 ID3D11Device *pDev;            // pointer to our Direct3D device interface
-ID3D11DeviceContext *pDevcon;  // pointer to our Direct3D device context
+ID3D11DeviceContext *pDevCon;  // pointer to our Direct3D device context
 ID3D11RenderTargetView *pRenderTargetView;  // pointer to back buffer
+ID3D11Buffer *pVertexBuffer;   // pointer to vertex buffer
+ID3D11InputLayout *pVertexLayout;  // vertex input layout
+ID3D11VertexShader *pVS;       // pointer to vertex shader
+ID3D11PixelShader *pPS;        // pointer to pixel shader
 
 // Forward declarations of functions included in this code module:
 ATOM				MyRegisterClass(HINSTANCE hInstance);
 LRESULT CALLBACK	WndProc(HWND, UINT, WPARAM, LPARAM);
-HRESULT InitD3D(HWND hWnd);     // set up and initialize d3d
+void InitD3D(HWND hWnd);     // set up and initialize d3d
 void CleanD3D(void);            // close d3d and release memory
+void RenderFrame(void);         // renders a single frame
+void PrepareVBuffer(void);   // create shape to render in vertex buffer
+void InitPipeline(void);     // load and prepare shaders and input layout
 
 int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
                      _In_opt_ HINSTANCE hPrevInstance,
@@ -37,11 +57,6 @@ int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
 {
 	UNREFERENCED_PARAMETER(hPrevInstance);
 	UNREFERENCED_PARAMETER(lpCmdLine);
-
- 	// TODO: Place code here.
-	MSG msg;
-	HACCEL hAccelTable;
-	HRESULT hr;
 
 	// Initialize global strings
 	LoadString(hInstance, IDS_APP_TITLE, szTitle, MAX_LOADSTRING);
@@ -79,29 +94,27 @@ int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
 	ShowWindow(hWnd, nCmdShow);
 
 	// set up and initialize d3d
-	hr = InitD3D(hWnd);
+	InitD3D(hWnd);
 
-	if (FAILED(hr))
-	{
-		MessageBox(NULL,
-				   L"Call to InitD3D failed :(",
-				   L"BasicRender",
-				   NULL);
+	// start in fullscreen mode by default
+	pSwapchain->SetFullscreenState(TRUE, NULL);
 
-		return 1;
-	}
-
+	MSG msg;
 	// Main message loop:
 	while (true)
 	{
-		if (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE));
+		if (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
 		{
 			TranslateMessage(&msg);
 			DispatchMessage(&msg);
 
-			if (msg.message==WM_QUIT) break;
+			if (msg.message==WM_QUIT)
+				break;
 		}
+		RenderFrame();
 	}
+
+	CleanD3D();
 
 	return (int) msg.wParam;
 }
@@ -157,74 +170,157 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 }
 
 // function to initialize and prepare Direct3D for use
-HRESULT InitD3D(HWND hWnd)
+void InitD3D(HWND hWnd)
 {
-	HRESULT hr;
-
 	// set initial parameters for swap chain
 	DXGI_SWAP_CHAIN_DESC sd;
 	ZeroMemory(&sd, sizeof(sd));
 	sd.BufferCount = 1;
+	sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
 	sd.BufferDesc.Width = SCREEN_WIDTH;
 	sd.BufferDesc.Height = SCREEN_HEIGHT;
-	sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-	sd.BufferDesc.RefreshRate.Numerator = 60;
-	sd.BufferDesc.RefreshRate.Denominator = 1;
 	sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
 	sd.OutputWindow = hWnd;
 	sd.SampleDesc.Count = 1;
 	sd.SampleDesc.Quality = 0;
 	sd.Windowed = TRUE;
-
-	// request a feature level
-	D3D_FEATURE_LEVEL FeatureLevelsRequested = D3D_FEATURE_LEVEL_11_0;
-	UINT numFeatureLevelsRequested = 1;
-	D3D_FEATURE_LEVEL FeatureLevelsSupported;
+	sd.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH; // allow full-screen switching
 
 	// create device by calling D3D11CreateDeviceAndSwapChain
-	hr = D3D11CreateDeviceAndSwapChain(NULL,
-									   D3D_DRIVER_TYPE_HARDWARE,
-									   NULL,
-									   0,
-									   &FeatureLevelsRequested,
-									   numFeatureLevelsRequested,
-									   D3D11_SDK_VERSION,
-									   &sd,
-									   &pSwapchain,
-									   &pDev,
-									   &FeatureLevelsSupported,
-									   &pDevcon);
+	D3D11CreateDeviceAndSwapChain(NULL,
+								  D3D_DRIVER_TYPE_HARDWARE,
+								  NULL,
+								  NULL,
+								  NULL,
+								  NULL,
+								  D3D11_SDK_VERSION,
+								  &sd,
+								  &pSwapchain,
+								  &pDev,
+								  NULL,
+								  &pDevCon);
 
 	// get a pointer to the back buffer
 	ID3D11Texture2D *pBackBuffer;
-	hr = pSwapchain->GetBuffer(0, __uuidof(ID3D11Texture2D),
-							   (LPVOID*)&pBackBuffer);
+	pSwapchain->GetBuffer(0, __uuidof(ID3D11Texture2D), (LPVOID*)&pBackBuffer);
 
 	// create a render-target view
-	pDev->CreateRenderTargetView(pBackBuffer, NULL,
-								 &pRenderTargetView);
+	pDev->CreateRenderTargetView(pBackBuffer, NULL, &pRenderTargetView);
+	pBackBuffer->Release();
 
 	// bind the view
-	pDevcon->OMSetRenderTargets(1, &pRenderTargetView, NULL);
+	pDevCon->OMSetRenderTargets(1, &pRenderTargetView, NULL);
 
 	// setup the viewport
-	D3D11_VIEWPORT vp;
-	vp.Width = SCREEN_WIDTH;
-	vp.Height = SCREEN_HEIGHT;
-	vp.MinDepth = 0.0f;
-	vp.MaxDepth = 1.0f;
+	D3D11_VIEWPORT vp = { 0 };
 	vp.TopLeftX = 0;
 	vp.TopLeftY = 0;
-	pDevcon->RSSetViewports(1, &vp);
+	vp.Width = SCREEN_WIDTH;
+	vp.Height = SCREEN_HEIGHT;
 
-	return hr;
+	pDevCon->RSSetViewports(1, &vp);
+
+	InitPipeline();
+	PrepareVBuffer();
 }
 
 void CleanD3D(void)
 {
+	// switch to windowed mode
+	pSwapchain->SetFullscreenState(FALSE, NULL);
+
 	// close and release COM objects
+	pVertexLayout->Release();
+	pVS->Release();
+	pPS->Release();
+	pVertexBuffer->Release();
 	pSwapchain->Release();
-	pDev->Release();
-	pDevcon->Release();
 	pRenderTargetView->Release();
+	pDev->Release();
+	pDevCon->Release();
+}
+
+void PrepareVBuffer(void)
+{
+	SimpleVertex OurVertices[] =
+	{
+		{ XMFLOAT3{ 0.0f, 0.5f,0.0f }, XMFLOAT3{ 0.5f, 0.5f, 1.0f } },
+		{ XMFLOAT3{ 0.45f, -0.5f, 0.0f }, XMFLOAT3{ 0.5f, 0.0f, 0.5f } },
+		{ XMFLOAT3{ -0.45f, -0.5f, 0.0f }, XMFLOAT3{ 0.1f, 0.5f, 0.5f } }
+	};
+
+	// fill in a buffer description
+	D3D11_BUFFER_DESC bufferDesc = { 0 };
+
+	bufferDesc.Usage = D3D11_USAGE_DYNAMIC;
+	bufferDesc.ByteWidth = sizeof(SimpleVertex) * 3;
+	bufferDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+	bufferDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+
+	// create buffer
+	pDev->CreateBuffer(&bufferDesc, NULL, &pVertexBuffer);
+
+	// create mapped subresource to enable us to access the buffer
+	D3D11_MAPPED_SUBRESOURCE mappedSubresource;
+	ZeroMemory(&mappedSubresource, sizeof(D3D11_MAPPED_SUBRESOURCE));
+
+	// Disable GPU access to the vertex buffer data.
+	pDevCon->Map(pVertexBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedSubresource);
+	// update vertex buffer
+	memcpy(mappedSubresource.pData, OurVertices, sizeof(OurVertices));
+	// Reenable GPU access to the vertex buffer data.
+	pDevCon->Unmap(pVertexBuffer, 0);
+}
+
+void InitPipeline(void)
+{
+	// load shaders
+	ID3DBlob *VS, *PS;
+	D3DCompileFromFile(L"VertexShader.hlsl", 0, 0, "main", "vs_4_0", 0, 0, &VS, 0);
+	D3DCompileFromFile(L"PixelShader.hlsl", 0, 0, "main", "ps_4_0", 0, 0, &PS, 0);
+
+	// encapsulate both shaders in shader objects
+	pDev->CreateVertexShader(VS->GetBufferPointer(), VS->GetBufferSize(), NULL, &pVS);
+	pDev->CreatePixelShader(PS->GetBufferPointer(), PS->GetBufferSize(), NULL, &pPS);
+
+	// set the shader objects
+	pDevCon->VSSetShader(pVS, 0, 0);
+	pDevCon->PSSetShader(pPS, 0, 0);
+
+	// create input layout
+	D3D11_INPUT_ELEMENT_DESC layout[] =
+	{
+		{"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT,
+		D3D11_INPUT_PER_VERTEX_DATA, 0},
+		{"COLOR", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT,
+		D3D11_INPUT_PER_VERTEX_DATA}
+	};
+
+	// fill input layout object
+	pDev->CreateInputLayout(layout, 2, VS->GetBufferPointer(), VS->GetBufferSize(), &pVertexLayout);
+	// set the input layout
+	pDevCon->IASetInputLayout(pVertexLayout);
+}
+
+void RenderFrame(void)
+{
+	// clear back buffer to black
+	{
+		XMFLOAT4 clearColour = { 0.0f,0.0f,0.0f,0.0f };
+		pDevCon->ClearRenderTargetView(pRenderTargetView, (FLOAT *)&clearColour);
+	}
+
+	// set vertex buffers
+	UINT stride = sizeof(SimpleVertex);
+	UINT offset = 0;
+	pDevCon->IASetVertexBuffers(0, 1, &pVertexBuffer, &stride, &offset);
+
+	// specify primitive type
+	pDevCon->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+	// draw the vertex buffer to the back buffer
+	pDevCon->Draw(3, 0);
+
+	// switch the back buffer and the front buffer
+	pSwapchain->Present(0, 0);
 }
