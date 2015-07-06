@@ -1,3 +1,5 @@
+#include "stdafx.h"
+
 #include "SystemClass.h"
 
 int WINAPI WinMain(_In_ HINSTANCE hInstance,
