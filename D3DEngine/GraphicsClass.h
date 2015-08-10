@@ -1,6 +1,10 @@
 #pragma once
 
 /////////////////////////////
+// CLASS INCLUDES
+#include "D3DClass.h"
+
+/////////////////////////////
 // GLOBAL GRAPHICS SETTINGS
 const bool FULL_SCREEN = false;
 const bool VSYNC_ENABLED = true;
@@ -25,5 +29,8 @@ public:
 
 private:
 	bool Render();
+
+private:
+	D3DClass* m_D3D;
 };
 
