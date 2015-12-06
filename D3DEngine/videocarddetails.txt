@@ -1,0 +1,2 @@
+Video Card Description: AMD Radeon HD 6900M Series
+Video Card Memory: 2035

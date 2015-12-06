@@ -2,16 +2,14 @@
 
 /////////////////////
 // INCLUDES
-//
+////////////////////
 #include <dxgi.h>
 #include <d3d11.h>
 #include <DirectXMath.h>
 
-//////////////////////////////
-// D3DClass
-//
-// Class to handle all direct3d system functions.
-
+////////////////////////////////////////////////////////////////////////////////
+// Class name: D3DClass
+////////////////////////////////////////////////////////////////////////////////
 class D3DClass
 {
 public:
@@ -19,21 +17,20 @@ public:
 	D3DClass(const D3DClass&);
 	~D3DClass();
 
-	bool Initialize(int screenWidth, int screenHeight, bool vsync, HWND hwnd,
-					bool fullscreen, float screenDepth, float screenNear);
+	bool Initialize(int, int, bool, HWND, bool, float, float);
 	void Shutdown();
 
-	void BeginScene(float red, float green, float blue, float alpha);
+	void BeginScene(float, float, float, float);
 	void EndScene();
 
 	ID3D11Device* GetDevice();
 	ID3D11DeviceContext* GetDeviceContext();
 
-	void GetProjectionMatrix(DirectX::XMMATRIX& projectionMatrix);
-	void GetWorldMatrix(DirectX::XMMATRIX& worldMatrix);
-	void GetOrthoMatrix(DirectX::XMMATRIX& orthoMatrix);
+	void GetProjectionMatrix(DirectX::XMMATRIX&);
+	void GetWorldMatrix(DirectX::XMMATRIX&);
+	void GetOrthoMatrix(DirectX::XMMATRIX&);
 
-	void GetVideoCardInfo(char* cardName, int& memory);
+	void GetVideoCardInfo(char*, int&);
 
 private:
 	bool m_vsync_enabled;
@@ -51,4 +48,3 @@ private:
 	DirectX::XMMATRIX m_worldMatrix;
 	DirectX::XMMATRIX m_orthoMatrix;
 };
-
